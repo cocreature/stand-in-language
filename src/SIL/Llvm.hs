@@ -33,6 +33,7 @@ import qualified LLVM.CodeGenOpt as CodeGenOpt
 import qualified LLVM.CodeModel as CodeModel
 import qualified LLVM.Linking as Linking
 import qualified LLVM.OrcJIT as OJ
+import qualified LLVM.OrcJIT.CompileLayer as OJ
 import qualified LLVM.Relocation as Reloc
 import qualified LLVM.Target as Target
 
@@ -77,7 +78,7 @@ data DebugModule = DebugModule AST.Module
 
 instance Show DebugModule where
   show (DebugModule m) = concatMap showDefinition $ moduleDefinitions m
-    where showDefinition (GlobalDefinition f@(Function _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _)) = displayFunction f
+    where showDefinition (GlobalDefinition f@(Function _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _)) = displayFunction f
           showDefinition _ = ""
           displayFunction f = concat [show (name f), "\n", (concatMap displayBlock (basicBlocks f)), "\n"]
           displayBlock (BasicBlock n inst term) =
@@ -87,7 +88,7 @@ instance Show DebugModule where
 resolver :: OJ.IRCompileLayer l -> OJ.SymbolResolver
 resolver compileLayer = OJ.SymbolResolver
   (\s -> OJ.findSymbol compileLayer s True)
-  (\s -> fmap (\a -> OJ.JITSymbol a (OJ.JITSymbolFlags False True)) (Linking.getSymbolAddressInProcess s))
+  (\s -> fmap (\a -> Right (OJ.JITSymbol a (OJ.defaultJITSymbolFlags { OJ.jitSymbolExported = True }))) (Linking.getSymbolAddressInProcess s))
 
 withTargetMachine :: (Target.TargetMachine -> IO a) -> IO a
 withTargetMachine f = do
@@ -126,7 +127,7 @@ evalJIT amod = do
               debugLog "really?????"
 -}
               mainSymbol <- OJ.mangleSymbol compileLayer "main"
-              (OJ.JITSymbol mainFn _) <- OJ.findSymbol compileLayer mainSymbol True
+              Right (OJ.JITSymbol mainFn _) <- OJ.findSymbol compileLayer mainSymbol True
               if mainFn == WordPtr 0
                 then do
                 debugLog "Could not find main"
@@ -337,8 +338,8 @@ doRight xp = do
 envC :: Operand
 envC = LocalReference intT "env"
 
-lComment :: a -> (a, MetadataNode)
-lComment s = (s, MetadataNode [])
+lComment :: a -> (a, MDRef MDNode)
+lComment s = (s, MDInline (MDTuple []))
 
 toLLVM :: SIL.IExpr -> FunctionState Operand
 -- chunks of AST that can be translated to optimized instructions
